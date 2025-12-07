@@ -38,9 +38,6 @@ func (e *Encoder) Encode(v any) (err error) {
 	return fn(e, rv)
 }
 
-// (Optional) simple cache hook — enable later.
-// var typeCache sync.Map // map[reflect.Type]encoderFn
-
 func (e *Encoder) buildEncoder(t reflect.Type) (fn encoderFn, err error) {
 	var ok bool
 	if fn, ok = tc.Get(t); ok {
