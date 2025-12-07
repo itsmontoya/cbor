@@ -207,29 +207,16 @@ func (e *Encoder) generateStructEncoder(t reflect.Type) (fn encoderFn, err error
 	}
 
 	return func(e *Encoder, v reflect.Value) error {
-		// Count fields after omitempty filtering so we can use definite map
-		var count int
-		skip := make(map[int]struct{})
-		for i, f := range fields {
-			fv := v.Field(f.index)
-			if f.omitempty && isZero(fv) {
-				skip[i] = struct{}{}
-				continue
-			}
-
-			count++
-		}
-
-		if err := e.r.MapStart(count); err != nil {
+		if err := e.r.MapStart(-1); err != nil {
 			return err
 		}
 
-		for i, f := range fields {
-			if _, ok := skip[i]; ok {
+		for _, f := range fields {
+			fv := v.Field(f.index)
+			if f.omitempty && isZero(fv) {
 				continue
 			}
 
-			fv := v.Field(f.index)
 			if err := e.r.String(f.name); err != nil {
 				return err
 			}
@@ -239,7 +226,7 @@ func (e *Encoder) generateStructEncoder(t reflect.Type) (fn encoderFn, err error
 			}
 		}
 
-		return nil
+		return e.r.MapEnd()
 	}, nil
 }
 
