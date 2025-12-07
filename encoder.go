@@ -201,14 +201,19 @@ func (e *Encoder) generateSortedMapEncoder(keyEnc, valEnc encoderFn) (fn encoder
 }
 
 func (e *Encoder) generateStructEncoder(t reflect.Type) (fn encoderFn, err error) {
-	fields := makeStructFields(t)
+	var fields []structField
+	if fields, err = e.makeStructFields(t); err != nil {
+		return
+	}
+
 	return func(e *Encoder, v reflect.Value) error {
 		// Count fields after omitempty filtering so we can use definite map
 		var count int
+		skip := make(map[int]struct{})
 		for i, f := range fields {
 			fv := v.Field(f.index)
 			if f.omitempty && isZero(fv) {
-				fields[i].skip = true
+				skip[i] = struct{}{}
 				continue
 			}
 
@@ -219,8 +224,8 @@ func (e *Encoder) generateStructEncoder(t reflect.Type) (fn encoderFn, err error
 			return err
 		}
 
-		for _, f := range fields {
-			if f.skip {
+		for i, f := range fields {
+			if _, ok := skip[i]; ok {
 				continue
 			}
 
@@ -236,6 +241,41 @@ func (e *Encoder) generateStructEncoder(t reflect.Type) (fn encoderFn, err error
 
 		return nil
 	}, nil
+}
+
+func (e *Encoder) makeStructFields(t reflect.Type) (out []structField, err error) {
+	n := t.NumField()
+	out = make([]structField, 0, n)
+	for i := range n {
+		f := t.Field(i)
+		if f.PkgPath != "" {
+			// Pass unexported
+			continue
+		}
+
+		tag := f.Tag.Get("cbor")
+		if tag == "-" {
+			continue
+		}
+
+		var sf structField
+		if sf, err = e.makeStructField(i, tag, f); err != nil {
+			return nil, err
+		}
+
+		out = append(out, sf)
+	}
+
+	return out, nil
+}
+
+func (e *Encoder) makeStructField(i int, tag string, sf reflect.StructField) (out structField, err error) {
+	name, omitempty := parseTag(tag, sf.Name)
+	out.index = i
+	out.name = name
+	out.omitempty = omitempty
+	out.enc, err = e.buildEncoder(sf.Type)
+	return
 }
 
 func (e *Encoder) generatePointerEncoder(t reflect.Type) (fn encoderFn, err error) {
