@@ -63,7 +63,7 @@ func (e *Encoder) buildEncoder(t reflect.Type) (fn encoderFn, err error) {
 	case reflect.Array:
 		fn, err = e.generateArrayEncoder(t)
 	case reflect.Map:
-		fn, err = e.generateMapEncoder(t, e.r.opt.SortMapKeys)
+		fn, err = e.generateMapEncoder(t, e.r.opt.Canonical)
 	case reflect.Struct:
 		fn, err = e.generateStructEncoder(t)
 

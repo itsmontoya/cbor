@@ -3,7 +3,6 @@ package cbor
 var DefaultEncOptions = EncoderOpts{
 	Canonical:       false,
 	MinimizeNumbers: true,
-	SortMapKeys:     false,
 }
 
 type EncoderOpts struct {
@@ -11,6 +10,4 @@ type EncoderOpts struct {
 	Canonical bool
 	// Deterministically choose smallest width for numbers where exact (e.g., float32 vs float64).
 	MinimizeNumbers bool
-	// Sort map keys by canonical bytewise order of their CBOR-encoded form.
-	SortMapKeys bool
 }
