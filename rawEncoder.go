@@ -52,7 +52,6 @@ func (e *RawEncoder) Float64(f float64) (err error) {
 		if f32 := float32(f); float64(f32) == f {
 			return e.Float32(f32)
 		}
-		// TODO: optional float16 when exactly representable.
 	}
 
 	if err = e.w.WriteByte((byte(majorSimple) << 5) | 27); err != nil {
@@ -64,10 +63,6 @@ func (e *RawEncoder) Float64(f float64) (err error) {
 }
 
 func (e *RawEncoder) Float32(f float32) (err error) {
-	if e.opt.MinimizeNumbers {
-		// TODO: optional float16 when exactly representable.
-	}
-
 	if err = e.w.WriteByte((byte(majorSimple) << 5) | 26); err != nil {
 		return err
 	}
