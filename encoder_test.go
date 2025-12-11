@@ -3,8 +3,6 @@ package cbor
 import (
 	"bytes"
 	"testing"
-
-	fxcbor "github.com/fxamacker/cbor/v2"
 )
 
 func TestEncoder_Encode(t *testing.T) {
@@ -71,11 +69,6 @@ func TestEncoder_Encode(t *testing.T) {
 		},
 	}
 
-	decMode, err := fxcbor.DecOptions{}.DecMode()
-	if err != nil {
-		t.Fatalf("failed to build cbor decMode: %v", err)
-	}
-
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			buf := bytes.NewBuffer(nil)
@@ -95,7 +88,7 @@ func TestEncoder_Encode(t *testing.T) {
 
 			// Decode using fxamacker/cbor
 			var decoded testtype
-			if err := decMode.Unmarshal(buf.Bytes(), &decoded); err != nil {
+			if err := NewDecoder(buf).Decode(&decoded); err != nil {
 				t.Fatalf("decoding encoded CBOR failed: %v\nbytes=%x", err, buf.Bytes())
 			}
 
