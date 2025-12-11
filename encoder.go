@@ -35,7 +35,11 @@ func (e *Encoder) Encode(v any) (err error) {
 		return
 	}
 
-	return fn(e, rv)
+	if err = fn(e, rv); err != nil {
+		return
+	}
+
+	return e.r.Flush()
 }
 
 func (e *Encoder) buildEncoder(t reflect.Type) (fn encoderFn, err error) {
