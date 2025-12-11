@@ -150,15 +150,15 @@ func (e *Encoder) generateUnsortedMapEncoder(keyEnc, valEnc encoderFn) (fn encod
 		}
 
 		keys := v.MapKeys()
-		if err := e.r.MapStart(len(keys)); err != nil {
+		if err = e.r.MapStart(len(keys)); err != nil {
 			return err
 		}
 
 		for _, k := range keys {
-			if err := keyEnc(e, k); err != nil {
+			if err = keyEnc(e, k); err != nil {
 				return err
 			}
-			if err := valEnc(e, v.MapIndex(k)); err != nil {
+			if err = valEnc(e, v.MapIndex(k)); err != nil {
 				return err
 			}
 		}
@@ -181,19 +181,19 @@ func (e *Encoder) generateSortedMapEncoder(keyEnc, valEnc encoderFn) (fn encoder
 			var kb, vb bytes.Buffer
 			ke := NewEncoder(&kb, e.r.opt)
 			ve := NewEncoder(&vb, e.r.opt)
-			if err := keyEnc(ke, k); err != nil {
+			if err = keyEnc(ke, k); err != nil {
 				return err
 			}
 
-			if err := ke.r.Flush(); err != nil {
+			if err = ke.r.Flush(); err != nil {
 				return err
 			}
 
-			if err := valEnc(ve, v.MapIndex(k)); err != nil {
+			if err = valEnc(ve, v.MapIndex(k)); err != nil {
 				return err
 			}
 
-			if err := ve.r.Flush(); err != nil {
+			if err = ve.r.Flush(); err != nil {
 				return err
 			}
 
@@ -270,9 +270,8 @@ func (e *Encoder) makeStructField(i int, tag string, sf reflect.StructField) (ou
 }
 
 func (e *Encoder) generatePointerEncoder(t reflect.Type) (fn encoderFn, err error) {
-	elem := t.Elem()
-
 	var elemEnc encoderFn
+	elem := t.Elem()
 	if elemEnc, err = e.buildEncoder(elem); err != nil {
 		return
 	}
@@ -281,6 +280,7 @@ func (e *Encoder) generatePointerEncoder(t reflect.Type) (fn encoderFn, err erro
 		if v.IsNil() {
 			return e.r.Null()
 		}
+
 		return elemEnc(e, v.Elem())
 	}, nil
 }
@@ -291,6 +291,7 @@ func (e *Encoder) generateInterfaceEncoder() (fn encoderFn, err error) {
 		if v.IsNil() {
 			return e.r.Null()
 		}
+
 		return e.Encode(v.Elem().Interface())
 	}, nil
 }
