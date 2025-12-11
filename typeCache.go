@@ -5,7 +5,7 @@ import (
 	"sync"
 )
 
-var tc typeCache
+var tc typeCache = typeCache{m: make(map[reflect.Type]encoderFn)}
 
 type typeCache struct {
 	mux sync.RWMutex
