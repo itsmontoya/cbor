@@ -6,4 +6,5 @@ type structField struct {
 	omitempty bool
 
 	enc encoderFn
+	dec decoderFn
 }
