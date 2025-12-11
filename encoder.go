@@ -44,7 +44,7 @@ func (e *Encoder) Encode(v any) (err error) {
 
 func (e *Encoder) buildEncoder(t reflect.Type) (fn encoderFn, err error) {
 	var ok bool
-	if fn, ok = tc.Get(t); ok {
+	if fn, ok = etc.Get(t); ok {
 		return
 	}
 
@@ -85,7 +85,7 @@ func (e *Encoder) buildEncoder(t reflect.Type) (fn encoderFn, err error) {
 		return nil, err
 	}
 
-	tc.Set(t, fn)
+	etc.Set(t, fn)
 	return fn, nil
 }
 
