@@ -2,14 +2,13 @@ package cbor
 
 import (
 	"errors"
-	"fmt"
 	"io"
 	"math"
 	"reflect"
 )
 
 // NewDecoder wraps r with a buffered raw decoder.
-func NewDecoder(r io.Reader) *Decoder {
+func NewDecoder(r io.Reader) (dec *Decoder) {
 	var d Decoder
 	d.r = NewRawDecoder(r)
 	return &d
@@ -19,12 +18,12 @@ type Decoder struct {
 	r *RawDecoder
 }
 
-func (d *Decoder) Decode(v any) error {
+func (d *Decoder) Decode(v any) (err error) {
 	if v == nil {
 		return errors.New("cbor: Decode(nil)")
 	}
 
-	// Custom Marshaler takes precedence.
+	// Custom Unmarshaler takes precedence.
 	if um, ok := v.(Marshaler); ok {
 		return um.UnmarshalCBOR(d.r)
 	}
@@ -44,39 +43,46 @@ func (d *Decoder) Decode(v any) error {
 	return fn(d, elem)
 }
 
-func (d *Decoder) buildDecoder(t reflect.Type) (decoderFn, error) {
-	if fn, ok := dtc.Get(t); ok {
-		return fn, nil
+func (d *Decoder) buildDecoder(t reflect.Type) (fn decoderFn, err error) {
+	var ok bool
+	if fn, ok = dtc.Get(t); ok {
+		return
 	}
-
-	var fn decoderFn
-	var err error
 
 	switch t.Kind() {
 	case reflect.Bool:
 		fn = decodeBool
+
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		fn, err = d.generateIntDecoder(t)
+
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
 		fn, err = d.generateUintDecoder(t)
+
 	case reflect.Float32:
 		fn = decodeFloat32
+
 	case reflect.Float64:
 		fn = decodeFloat64
+
 	case reflect.String:
 		fn = decodeString
 
 	case reflect.Slice:
 		fn, err = d.generateSliceDecoder(t)
+
 	case reflect.Array:
 		fn, err = d.generateArrayDecoder(t)
+
 	case reflect.Map:
 		fn, err = d.generateMapDecoder(t)
+
 	case reflect.Struct:
 		fn, err = d.generateStructDecoder(t)
 
 	case reflect.Interface:
 		fn, err = d.generateInterfaceDecoder()
+
 	case reflect.Pointer:
 		fn, err = d.generatePointerDecoder(t)
 
@@ -89,14 +95,14 @@ func (d *Decoder) buildDecoder(t reflect.Type) (decoderFn, error) {
 	}
 
 	dtc.Set(t, fn)
-	return fn, nil
+	return
 }
 
-func (d *Decoder) makeStructFields(t reflect.Type) ([]structField, error) {
+func (d *Decoder) makeStructFields(t reflect.Type) (out []structField, err error) {
 	n := t.NumField()
-	out := make([]structField, 0, n)
+	out = make([]structField, 0, n)
 
-	for i := 0; i < n; i++ {
+	for i := range n {
 		f := t.Field(i)
 		if f.PkgPath != "" {
 			// unexported
@@ -110,8 +116,8 @@ func (d *Decoder) makeStructFields(t reflect.Type) ([]structField, error) {
 
 		name, _ := parseTag(tag, f.Name) // omitempty only affects encoding
 
-		dfn, err := d.buildDecoder(f.Type)
-		if err != nil {
+		var dfn decoderFn
+		if dfn, err = d.buildDecoder(f.Type); err != nil {
 			return nil, err
 		}
 
@@ -125,148 +131,182 @@ func (d *Decoder) makeStructFields(t reflect.Type) ([]structField, error) {
 	return out, nil
 }
 
-func (d *Decoder) generateIntDecoder(t reflect.Type) (decoderFn, error) {
+func (d *Decoder) generateIntDecoder(t reflect.Type) (fn decoderFn, err error) {
 	bits := t.Bits()
-	return func(d *Decoder, v reflect.Value) error {
-		n, err := d.r.Int()
-		if err != nil {
-			return err
+
+	fn = func(dec *Decoder, v reflect.Value) (err error) {
+		var n int64
+		if n, err = dec.r.Int(); err != nil {
+			return
 		}
+
 		// Range check
 		min := -(int64(1) << (bits - 1))
 		max := (int64(1) << (bits - 1)) - 1
 		if n < min || n > max {
-			return errors.New("cbor: int out of range")
+			err = errors.New("cbor: int out of range")
+			return
 		}
+
 		v.SetInt(n)
-		return nil
-	}, nil
+		return
+	}
+
+	return
 }
 
-func (d *Decoder) generateUintDecoder(t reflect.Type) (decoderFn, error) {
+func (d *Decoder) generateUintDecoder(t reflect.Type) (fn decoderFn, err error) {
 	bits := t.Bits()
-	return func(d *Decoder, v reflect.Value) error {
-		n, err := d.r.Int()
-		if err != nil {
-			return err
+
+	fn = func(dec *Decoder, v reflect.Value) (err error) {
+		var n int64
+		if n, err = dec.r.Int(); err != nil {
+			return
 		}
 
 		if n < 0 {
-			return errors.New("cbor: negative value for unsigned")
+			err = errors.New("cbor: negative value for unsigned")
+			return
 		}
 
 		u := uint64(n)
 		if u > (uint64(1)<<bits)-1 {
-			return errors.New("cbor: uint out of range")
+			err = errors.New("cbor: uint out of range")
+			return
 		}
+
 		v.SetUint(u)
-		return nil
-	}, nil
+		return
+	}
+
+	return
 }
 
-func (d *Decoder) generateSliceDecoder(t reflect.Type) (decoderFn, error) {
+func (d *Decoder) generateSliceDecoder(t reflect.Type) (fn decoderFn, err error) {
 	// []byte -> byte string
 	if t.Elem().Kind() == reflect.Uint8 {
-		return func(d *Decoder, v reflect.Value) error {
-			bs, err := d.r.Bytes()
+		fn = func(dec *Decoder, v reflect.Value) (err error) {
+			var bs []byte
+			bs, err = dec.r.Bytes()
 			if err != nil {
-				return err
+				return
 			}
 			v.SetBytes(bs)
-			return nil
-		}, nil
+			return
+		}
+		return
 	}
 
 	// general slice -> CBOR array
-	elemDec, err := d.buildDecoder(t.Elem())
-	if err != nil {
-		return nil, err
+	var elemDec decoderFn
+	if elemDec, err = d.buildDecoder(t.Elem()); err != nil {
+		return
 	}
 
-	return func(d *Decoder, v reflect.Value) error {
-		n, err := d.r.ArrayStart()
-		if err != nil {
-			return err
+	fn = func(dec *Decoder, v reflect.Value) (err error) {
+		var n int
+		if n, err = dec.r.ArrayStart(); err != nil {
+			return
 		}
+
 		if n < 0 {
-			return ErrIndefiniteLength // you can support this later if you want
+			err = ErrIndefiniteLength // you can support this later if you want
+			return
 		}
 
 		s := reflect.MakeSlice(t, n, n)
 		for i := 0; i < n; i++ {
-			if err := elemDec(d, s.Index(i)); err != nil {
-				return err
+			if err = elemDec(dec, s.Index(i)); err != nil {
+				return
 			}
 		}
+
 		v.Set(s)
-		return nil
-	}, nil
+		return
+	}
+
+	return
 }
 
-func (d *Decoder) generateArrayDecoder(t reflect.Type) (decoderFn, error) {
-	elemDec, err := d.buildDecoder(t.Elem())
-	if err != nil {
-		return nil, err
+func (d *Decoder) generateArrayDecoder(t reflect.Type) (fn decoderFn, err error) {
+	var elemDec decoderFn
+	if elemDec, err = d.buildDecoder(t.Elem()); err != nil {
+		return
 	}
-	length := t.Len()
 
-	return func(d *Decoder, v reflect.Value) error {
-		n, err := d.r.ArrayStart()
-		if err != nil {
+	length := t.Len()
+	fn = func(dec *Decoder, v reflect.Value) (err error) {
+		var n int
+		if n, err = dec.r.ArrayStart(); err != nil {
 			return err
 		}
+
 		if n != length {
 			return errors.New("cbor: array length mismatch")
 		}
-		for i := 0; i < length; i++ {
-			if err := elemDec(d, v.Index(i)); err != nil {
-				return err
+
+		for i := range length {
+			err = elemDec(dec, v.Index(i))
+			if err != nil {
+				return
 			}
 		}
+
 		return nil
-	}, nil
+	}
+
+	return
 }
 
-func (d *Decoder) generateMapDecoder(t reflect.Type) (decoderFn, error) {
-	keyDec, err := d.buildDecoder(t.Key())
-	if err != nil {
-		return nil, err
-	}
-	valDec, err := d.buildDecoder(t.Elem())
-	if err != nil {
+func (d *Decoder) generateMapDecoder(t reflect.Type) (fn decoderFn, err error) {
+	var keyDec decoderFn
+	if keyDec, err = d.buildDecoder(t.Key()); err != nil {
 		return nil, err
 	}
 
-	return func(d *Decoder, v reflect.Value) error {
-		n, err := d.r.MapStart()
-		if err != nil {
+	var valDec decoderFn
+	if valDec, err = d.buildDecoder(t.Elem()); err != nil {
+		return nil, err
+	}
+
+	fn = func(dec *Decoder, v reflect.Value) (err error) {
+		var n int
+		if n, err = dec.r.MapStart(); err != nil {
 			return err
 		}
+
 		if n < 0 {
-			return ErrIndefiniteLength // our encoder doesn't emit indefinite maps for map[K]V
+			err = ErrIndefiniteLength // our encoder doesn't emit indefinite maps for map[K]V
+			return
 		}
 
 		m := reflect.MakeMapWithSize(t, n)
 		for i := 0; i < n; i++ {
 			kv := reflect.New(t.Key()).Elem()
-			if err := keyDec(d, kv); err != nil {
+			if err = keyDec(dec, kv); err != nil {
 				return err
 			}
+
 			vv := reflect.New(t.Elem()).Elem()
-			if err := valDec(d, vv); err != nil {
+			if err = valDec(dec, vv); err != nil {
 				return err
 			}
+
 			m.SetMapIndex(kv, vv)
 		}
+
 		v.Set(m)
-		return nil
-	}, nil
+		return
+	}
+
+	return
 }
 
-func (d *Decoder) generateStructDecoder(t reflect.Type) (decoderFn, error) {
-	fields, err := d.makeStructFields(t)
+func (d *Decoder) generateStructDecoder(t reflect.Type) (fn decoderFn, err error) {
+	var fields []structField
+	fields, err = d.makeStructFields(t)
 	if err != nil {
-		return nil, err
+		return
 	}
 
 	// name -> field
@@ -275,158 +315,182 @@ func (d *Decoder) generateStructDecoder(t reflect.Type) (decoderFn, error) {
 		fieldByName[f.name] = f
 	}
 
-	return func(d *Decoder, v reflect.Value) error {
-		n, err := d.r.MapStart()
-		if err != nil {
-			return err
+	fn = func(dec *Decoder, v reflect.Value) (err error) {
+		var n int
+		if n, err = dec.r.MapStart(); err != nil {
+			return
 		}
-
-		fmt.Println("N", n)
 
 		// ----- Definite-length map -----
 		if n >= 0 {
 			for i := 0; i < n; i++ {
-				key, err := d.r.String()
-				if err != nil {
-					return err
+				var key string
+				if key, err = dec.r.String(); err != nil {
+					return
 				}
-				sf, ok := fieldByName[key]
-				if !ok {
+
+				var (
+					sf structField
+					ok bool
+				)
+
+				if sf, ok = fieldByName[key]; !ok {
 					// TEMP behavior: hard error for unknown fields
-					return errors.New("cbor: unknown struct field: " + key)
+					err = errors.New("cbor: unknown struct field: " + key)
+					return
 				}
+
 				fv := v.Field(sf.index)
-				if err := sf.dec(d, fv); err != nil {
-					return err
+				if err = sf.dec(dec, fv); err != nil {
+					return
 				}
 			}
-			return nil
+
+			return
 		}
 
 		// ----- Indefinite-length map -----
 		for {
-			// Look at the next item head
-			h, err := d.r.readHead()
-			if err != nil {
-				return err
+			var h head
+			if h, err = dec.r.readHead(); err != nil {
+				return
 			}
 
 			// Break?
 			if h.maj == majorSimple && h.ai == 31 {
 				// This is the map break code (0xff)
-				return nil
+				return
 			}
 
 			// Otherwise this must be a text key header.
 			if h.maj != majorText || h.indef {
-				return ErrUnexpectedMajorType
+				err = ErrUnexpectedMajorType
+				return
 			}
 
 			if h.value > math.MaxInt {
-				return ErrLengthTooLarge
+				err = ErrLengthTooLarge
+				return
 			}
 
-			// Read key bytes based on the length in the head we just read.
-			keyBytes, err := d.r.readN(h.value)
-			if err != nil {
-				return err
+			var keyBytes []byte
+			if keyBytes, err = dec.r.readN(h.value); err != nil {
+				return
 			}
+
+			var (
+				sf structField
+				ok bool
+			)
+
 			key := string(keyBytes)
-			fmt.Println("Key", key)
-			sf, ok := fieldByName[key]
-			if !ok {
+			if sf, ok = fieldByName[key]; !ok {
 				// TEMP behavior: hard error on unknown fields
-				return errors.New("cbor: unknown struct field: " + key)
+				err = errors.New("cbor: unknown struct field: " + key)
+				return
 			}
 
 			fv := v.Field(sf.index)
-			if err := sf.dec(d, fv); err != nil {
-				return err
+			err = sf.dec(dec, fv)
+			if err != nil {
+				return
 			}
 		}
-	}, nil
-}
-
-func (d *Decoder) generatePointerDecoder(t reflect.Type) (decoderFn, error) {
-	elem := t.Elem()
-
-	elemDec, err := d.buildDecoder(elem)
-	if err != nil {
-		return nil, err
 	}
 
-	return func(d *Decoder, v reflect.Value) error {
+	return
+}
+
+func (d *Decoder) generatePointerDecoder(t reflect.Type) (fn decoderFn, err error) {
+	var elemDec decoderFn
+	elem := t.Elem()
+	if elemDec, err = d.buildDecoder(elem); err != nil {
+		return
+	}
+
+	fn = func(dec *Decoder, v reflect.Value) (err error) {
 		// Peek the next byte to see if it's CBOR null.
-		b, err := d.r.r.ReadByte()
-		if err != nil {
-			return err
+		var b byte
+		if b, err = dec.r.r.ReadByte(); err != nil {
+			return
 		}
+
 		maj := major(b >> 5)
 		ai := b & 0x1f
 
 		// Null: represent as a nil pointer.
 		if maj == majorSimple && ai == 22 { // simple(null)
 			v.Set(reflect.Zero(v.Type())) // nil *T
-			return nil
+			return
 		}
 
 		// Not null: put the byte back and decode as the element type.
-		if err := d.r.r.UnreadByte(); err != nil {
-			return err
+		if err = dec.r.r.UnreadByte(); err != nil {
+			return
 		}
 
 		ptr := reflect.New(elem)
-		if err := elemDec(d, ptr.Elem()); err != nil {
-			return err
+		if err = elemDec(dec, ptr.Elem()); err != nil {
+			return
 		}
+
 		v.Set(ptr)
-		return nil
-	}, nil
+		return
+	}
+
+	return
 }
 
-func (d *Decoder) generateInterfaceDecoder() (decoderFn, error) {
+func (d *Decoder) generateInterfaceDecoder() (fn decoderFn, err error) {
 	// For now, we don't have a generic "any" decoder.
 	// Easiest: require interface{} as the top-level type and decode into concrete types yourself
 	// via Unmarshaler. You can extend this later.
-	return func(d *Decoder, v reflect.Value) error {
-		return errors.New("cbor: decoding into interface is not yet implemented")
-	}, nil
+	fn = func(_ *Decoder, _ reflect.Value) (err error) {
+		err = errors.New("cbor: decoding into interface is not yet implemented")
+		return
+	}
+
+	return
 }
 
-func decodeBool(d *Decoder, v reflect.Value) error {
-	b, err := d.r.Bool()
-	if err != nil {
-		return err
+func decodeBool(d *Decoder, v reflect.Value) (err error) {
+	var b bool
+	if b, err = d.r.Bool(); err != nil {
+		return
 	}
+
 	v.SetBool(b)
-	return nil
+	return
 }
 
-func decodeFloat32(d *Decoder, v reflect.Value) error {
-	f, err := d.r.Float32()
-	if err != nil {
-		return err
+func decodeFloat32(d *Decoder, v reflect.Value) (err error) {
+	var f float32
+	if f, err = d.r.Float32(); err != nil {
+		return
 	}
+
 	v.SetFloat(float64(f))
-	return nil
+	return
 }
 
-func decodeFloat64(d *Decoder, v reflect.Value) error {
-	f, err := d.r.Float64()
-	if err != nil {
-		return err
+func decodeFloat64(d *Decoder, v reflect.Value) (err error) {
+	var f float64
+	if f, err = d.r.Float64(); err != nil {
+		return
 	}
+
 	v.SetFloat(f)
-	return nil
+	return
 }
 
-func decodeString(d *Decoder, v reflect.Value) error {
-	s, err := d.r.String()
-	if err != nil {
-		return err
+func decodeString(d *Decoder, v reflect.Value) (err error) {
+	var s string
+	if s, err = d.r.String(); err != nil {
+		return
 	}
+
 	v.SetString(s)
-	return nil
+	return
 }
 
 // decoderFn decodes into v (which is a reflect.Value of the destination).
