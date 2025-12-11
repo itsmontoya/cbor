@@ -15,6 +15,14 @@ func getBufioWriter(w io.Writer) *bufio.Writer {
 	return bufio.NewWriterSize(w, 16<<10)
 }
 
+func getBufioReader(r io.Reader) *bufio.Reader {
+	if bw, ok := r.(*bufio.Reader); ok {
+		return bw
+	}
+
+	return bufio.NewReaderSize(r, 16<<10)
+}
+
 func parseTag(tag, fallback string) (name string, omitempty bool) {
 	if tag == "" {
 		return fallback, false
